@@ -1,88 +1,70 @@
-// =======================================
-// Libraries
-// =======================================
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <DHT.h>
+#include <math.h>  // For log() and exp()
 
-#include <Wire.h>                 // Enables I2C communication protocol (used by the LCD)
-#include <LiquidCrystal_I2C.h>    // Library to control I2C LCD
-#include <DHT.h>                  // Library to read data from the DHT temperature & humidity sensor
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-// =======================================
-// LCD Setup
-// =======================================
+#define DHTPIN A3        
+#define DHTTYPE DHT11    
+DHT dht(DHTPIN, DHTTYPE);
 
-LiquidCrystal_I2C lcd(0x27, 16, 2); 
-// Creates an LCD object with:
-// 0x27 -> I2C address of the LCD module
-// 16   -> Number of columns (characters per line)
-// 2    -> Number of rows
-
-// =======================================
-// DHT Sensor Setup
-// =======================================
-
-#define DHTPIN A3        // Defines the analog pin (A3) where the DHT11 sensor data pin is connected
-#define DHTTYPE DHT11    // Specifies the type of DHT sensor being used (DHT11)
-DHT dht(DHTPIN, DHTTYPE); 
-// Creates a DHT object using the defined pin and sensor type
-
-// =======================================
-// Variables
-// =======================================
-
-int h;  // Stores the humidity value
-int t;  // Stores the temperature value
-
-// =======================================
-// Setup Function
-// Runs once when the Arduino starts or resets
-// =======================================
+float h;   // humidity
+float t;   // temperature
+float dp;  // dew point
+float rh;  // recomputed relative humidity
+float hi;  // heat index
 
 void setup() {
-  Serial.begin(9600);  
-  // Starts serial communication at 9600 baud rate
-  // This allows sending temperature and humidity data to the Serial Monitor
+  Serial.begin(9600);
+  Serial.println("Temperature and Humidity Sensor Test");
 
-  Serial.println("Temperature and Humidity Sensor Test");  
-  // Prints a message to indicate the program has started
-
-  dht.begin();  
-  // Initializes the DHT sensor so it can start reading data
-
-  lcd.init();        
-  // Initializes the LCD display
-
-  lcd.backlight();   
-  // Turns on the LCD backlight so text is visible
+  dht.begin();
+  lcd.init();
+  lcd.backlight();
 }
 
-// =======================================
-// Main Loop
-// Repeats continuously after setup()
-// =======================================
-
 void loop() {
-  // === Reading Sensor Values ===
-  h = dht.readHumidity();       // Reads the current humidity from the DHT11 sensor
-  t = dht.readTemperature();    // Reads the current temperature (in Celsius) from the DHT11 sensor
+  // === Reading sensor values (floats for decimal precision) ===
+  h = dht.readHumidity();
+  t = dht.readTemperature();
 
-  // === Sending Data to Serial Monitor ===
-  Serial.print("Humidity: ");   // Prints label for humidity
-  Serial.print(h);              // Prints the actual humidity value
-  Serial.print(" %, Temp: ");   // Prints label for temperature
-  Serial.print(t);              // Prints the actual temperature value
-  Serial.println(" °C");        // Prints "°C" and moves to the next line
+  // === Compute dew point using Magnus formula ===
+  float gamma = (17.625 * t) / (243.04 + t) + log(h / 100.0);
+  dp = (243.04 * gamma) / (17.625 - gamma);
 
-  // === Displaying Data on LCD ===
-  lcd.setCursor(0, 0);          // Sets the cursor to the first row, first column
-  lcd.print("Temperature:");    // Prints the label "Temperature:"
-  lcd.print(t);                  // Prints the temperature value
-  lcd.print("C");                // Prints "C" for Celsius
+  // === Recompute RH using given formula ===
+  float rh_top = exp((17.625 * dp) / (243.04 + dp));
+  float rh_bottom = exp((17.625 * t) / (243.04 + t));
+  rh = 100.0 * (rh_top / rh_bottom);
 
-  lcd.setCursor(0, 1);          // Sets the cursor to the second row, first column
-  lcd.print("Humidity:");       // Prints the label "Humidity:"
-  lcd.print(h);                  // Prints the humidity value
-  lcd.print("%");                // Prints "%" for percentage
+  // === Compute Heat Index (feels-like temperature) ===
+  hi = dht.computeHeatIndex(t, h, false);  // false = Celsius
 
-  // === Delay Before Next Update ===
-  delay(1000);                   // Waits 1 second before taking the next reading
+  // === Serial output ===
+  Serial.print("Temp: ");
+  Serial.print(t, 1);
+  Serial.print(" °C, Humidity: ");
+  Serial.print(h, 1);
+  Serial.print(" %, Dew Point: ");
+  Serial.print(dp, 1);
+  Serial.print(" °C, Recalc RH: ");
+  Serial.print(rh, 1);
+  Serial.print(" %, Heat Index: ");
+  Serial.print(hi, 1);
+  Serial.println(" °C");
+
+  // === LCD output (TEMP + HUMIDITY only) ===
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Temp:");
+  lcd.print(t, 1);
+  lcd.print("C ");
+
+  lcd.setCursor(0, 1);
+  lcd.print("Humid:");
+  lcd.print(h, 1);
+  lcd.print("%");
+
+  delay(2000);
 }
